@@ -6,3 +6,4 @@ Debug/
 *.project
 Release/
 *.settings/
+*.autotools
