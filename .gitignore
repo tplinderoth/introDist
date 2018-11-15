@@ -1,0 +1,8 @@
+introDist
+*.o
+*.d
+Debug/
+*.cproject
+*.project
+Release/
+*.settings/
