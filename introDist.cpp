@@ -194,9 +194,7 @@ int comp2DistAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 	unsigned int nsites = 0;
 	unsigned int dr_nsites = 0;
 	double windD = 0.0;
-	unsigned int midpoint = 0;
 	unsigned int i = 0;
-	unsigned int j = 0;
 	unsigned int n = window-step;
 	double dg = 0.0;
 	unsigned int dg_nsites = 0;
@@ -261,7 +259,6 @@ int comp2DistAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 		if (distiter == dist.end()) {
 
 			// calculate window value
-			midpoint = (dist[0].first + dist[lastidx].first)/2;
 			windD = 0.0;
 			dr_nsites = 0;
 			for (distiter = dist.begin(); distiter != dist.end(); ++distiter) {
@@ -272,16 +269,14 @@ int comp2DistAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 			if (dr_nsites > 0) {
 				windD /= (double)dr_nsites;
 			} else {
-				std::cerr << "Warning: window " << gchr << " " << midpoint << " has no sites with data\n";
+				std::cerr << "Warning: window " << gchr << " " << dist[0].first << "," << dist[lastidx].first << " has no sites with data\n";
 			}
-			windist.push_back(makeWinInfo(midpoint, dr_nsites, windD));
+			windist.push_back(makeWinInfo(dist[0].first, dist[lastidx].first, dr_nsites, windD));
 
 			// prepare vector for new values
-			j = 0;
 			for (i = 0; i < n; ++i) {
-				dist[i].first = dist[step+j].first;
-				dist[i].second = dist[step+j].second;
-				++j;
+				dist[i].first = dist[step+i].first;
+				dist[i].second = dist[step+i].second;
 			}
 
 			nsites = n;
@@ -294,10 +289,10 @@ int comp2DistAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 
 	// calculate last window
 	if (nsites > n && nsites < window) {
-		midpoint = (dist[0].first + dist[nsites-1].first)/2;
+		unsigned int lastwinidx = nsites-1;
 		dr_nsites = 0;
 		windD = 0.0;
-		for (i=0; i < nsites-1; ++i) {
+		for (i=0; i < lastwinidx; ++i) {
 			if (dist[i].second < -2.0) continue;
 			windD += dist[i].second;
 			++dr_nsites;
@@ -305,9 +300,9 @@ int comp2DistAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 		if (dr_nsites > 0) {
 			windD /= (double)dr_nsites;
 		} else {
-			std::cerr << "Warning: window " << gchr << " " << midpoint << " has no sites with data\n";
+			std::cerr << "Warning: window " << gchr << " " << dist[0].first << "," << dist[lastwinidx].first << " has no sites with data\n";
 		}
-		windist.push_back(makeWinInfo(midpoint, dr_nsites, windD));
+		windist.push_back(makeWinInfo(dist[0].first, dist[lastwinidx].first, dr_nsites, windD));
 	}
 
 	// calculate and print distance statistic
@@ -319,6 +314,7 @@ int comp2DistAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 	}
 	std::cerr << "\nAverage distance between populations: " << dg << "\n\n";
 
+	unsigned int midpoint = 0;
 	double Dstat = 0.0;
 	double denom;
 	for (std::vector<WindowInfo>::iterator winditer = windist.begin(); winditer != windist.end(); ++winditer) {
@@ -327,10 +323,11 @@ int comp2DistAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 			Dstat = (winditer->d - dg)/denom;
 		}
 		else { // use exception handling for this
-			std::cerr << "Warning: genome and window distances are zero for region: " << gchr << " " << winditer->pos << "\n";
+			std::cerr << "Warning: genome and window distances are zero for region " << gchr << " " << winditer->start << "," << winditer->stop << "\n";
 			Dstat = 0.0;
 		}
-		std::cout << gchr << "\t" << winditer->pos << "\t" << Dstat << "\t" << winditer->nsites << "\n";
+		midpoint = (winditer->start + winditer->stop)/2;
+		std::cout << gchr << "\t" << winditer->start << "\t" << winditer->stop << "\t" << midpoint << "\t" << Dstat << "\t" << winditer->nsites << "\n";
 	}
 
 	return 0;
@@ -342,7 +339,7 @@ int comp2DistReg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 	 * this calculates the difference in the genetic distance between individual i and population2
 	 * and the expected distance between individual i's population and population2 in a region
 	 *
-	 * D = [d_R(Pi, P2) - d_R(i, P2)]
+	 * D = [d_R(i, P2) - d_R(Pi, P2)]
 	 * subscript R denotes average across region
 	 *
 	 * at site s:
@@ -366,7 +363,6 @@ int comp2DistReg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 	double windD = 0.0;
 	unsigned int midpoint = 0;
 	unsigned int i = 0;
-	unsigned int j = 0;
 	unsigned int n = window-step;
 
 	std::stringstream ss;
@@ -415,7 +411,6 @@ int comp2DistReg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 		if (distiter == dist.end()) {
 
 			// calculate window value
-			midpoint = (dist[0].first + dist[lastidx].first)/2;
 			windD = 0.0;
 			dr_nsites = 0;
 			for (distiter = dist.begin(); distiter != dist.end(); ++distiter) {
@@ -426,16 +421,15 @@ int comp2DistReg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 			if (dr_nsites > 0) {
 				windD /= (double)dr_nsites;
 			} else {
-				std::cerr << "Warning: window " << gchr << " " << midpoint << " has no sites with data\n";
+				std::cerr << "Warning: window " << gchr << " " << dist[0].first << "," << dist[lastidx].first << " has no sites with data\n";
 			}
-			std::cout << gchr << "\t" << midpoint << "\t" << windD << "\t" << dr_nsites << "\n";
+			midpoint = (dist[0].first + dist[lastidx].first)/2;
+			std::cout << gchr << "\t" << dist[0].first << "\t" << dist[lastidx].first << "\t" << midpoint << "\t" << windD << "\t" << dr_nsites << "\n";
 
 			// prepare vector for new values
-			j = 0;
 			for (i = 0; i < n; ++i) {
-				dist[i].first = dist[step+j].first;
-				dist[i].second = dist[step+j].second;
-				++j;
+				dist[i].first = dist[step+i].first;
+				dist[i].second = dist[step+i].second;
 			}
 
 			nsites = n;
@@ -448,10 +442,10 @@ int comp2DistReg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 
 	// print last window
 	if (nsites > n && nsites < window) {
-		midpoint = (dist[0].first + dist[nsites-1].first)/2;
+		unsigned int lastwinidx = nsites-1;
 		dr_nsites = 0;
 		windD = 0.0;
-		for (i=0; i < nsites-1; ++i) {
+		for (i=0; i < lastwinidx; ++i) {
 			if (dist[i].second < -2.0) continue;
 			windD += dist[i].second;
 			++dr_nsites;
@@ -459,9 +453,10 @@ int comp2DistReg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 		if (dr_nsites > 0) {
 			windD /= (double)dr_nsites;
 		} else {
-			std::cerr << "Warning: window " << gchr << " " << midpoint << " has no sites with data\n";
+			std::cerr << "Warning: window " << gchr << " " << dist[0].first << "," << dist[lastwinidx].first << " has no sites with data\n";
 		}
-		std::cout << gchr << "\t" << midpoint << "\t" << windD << "\t" << dr_nsites << "\n";
+		midpoint = (dist[0].first + dist[lastwinidx].first)/2;
+		std::cout << gchr << "\t" << dist[0].first << "\t" << dist[lastwinidx].first << "\t" << midpoint << "\t" << windD << "\t" << dr_nsites << "\n";
 	}
 
 	return 0;
@@ -488,8 +483,8 @@ double expectIndPopDist (double g, double p) {
 	return fabs(g - eg)/2.0;
 }
 
-WindowInfo makeWinInfo (unsigned int position, unsigned int nsites, double dist) {
-	WindowInfo window = {position, nsites, dist};
+WindowInfo makeWinInfo (unsigned int start, unsigned int stop, unsigned int nsites, double dist) {
+	WindowInfo window = {start, stop, nsites, dist};
 	return window;
 }
 
@@ -505,7 +500,6 @@ int comp3Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int wind
 	double logwinD = 0.0;
 	unsigned int midpoint = 0;
 	unsigned int i = 0;
-	unsigned int j = 0;
 	unsigned int n = window-step;
 
 	std::stringstream ss;
@@ -553,7 +547,6 @@ int comp3Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int wind
 		++nsites;
 
 		if (distiter == dist.end()) {
-			midpoint = (dist[0].first + dist[lastidx].second)/2;
 			windD = 0.0;
 			dr_nsites = 0;
 			for (distiter = dist.begin(); distiter != dist.end(); ++distiter) {
@@ -564,18 +557,17 @@ int comp3Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int wind
 			if (dr_nsites > 0) {
 				windD /= (double)dr_nsites;
 			} else {
-				std::cerr << "Warning: window " << gchr << " " << midpoint << " has no sites with data\n";
+				std::cerr << "Warning: window " << gchr << " " << dist[0].first << "," << dist[lastidx].first << " has no sites with data\n";
 			}
+			midpoint = (dist[0].first + dist[lastidx].first)/2;
 			logwinD = -log(1.0-windD);
 			if (logwinD == 0.0) logwinD = 0.0; // no negative zero
-			std::cout << gchr << "\t" << midpoint << "\t" << logwinD << "\t" << dr_nsites << "\n";
+			std::cout << gchr << "\t" << dist[0].first << "\t" << dist[lastidx].first << "\t" << midpoint << "\t" << logwinD << "\t" << dr_nsites << "\n";
 
 			// prepare vector for new values
-			j = 0;
 			for (i = 0; i < n; ++i) {
-				dist[i].first = dist[step+j].first;
-				dist[i].second = dist[step+j].second;
-				++j;
+				dist[i].first = dist[step+i].first;
+				dist[i].second = dist[step+i].second;
 			}
 
 			nsites = n;
@@ -588,10 +580,10 @@ int comp3Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int wind
 
 	// print last window
 	if (nsites > n && nsites < window) {
-		midpoint = (dist[0].first + dist[nsites-1].first)/2;
+		unsigned int lastwinidx = nsites-1;
 		windD = 0.0;
 		dr_nsites = 0;
-		for (i=0; i < nsites-1; ++i) {
+		for (i=0; i < lastwinidx; ++i) {
 			if (dist[i].second < 0) continue;
 			windD += dist[i].second;
 			++dr_nsites;
@@ -599,11 +591,12 @@ int comp3Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int wind
 		if (dr_nsites > 0) {
 			windD /= (double)nsites;
 		} else {
-			std::cerr << "Warning: window " << gchr << " " << midpoint << " has no sites with data\n";
+			std::cerr << "Warning: window " << gchr << " " << dist[0].first << "," << dist[lastwinidx].first << " has no sites with data\n";
 		}
+		midpoint = (dist[0].first + dist[lastwinidx].first)/2;
 		logwinD = -log(1.0-windD);
 		if (logwinD == 0.0) logwinD = 0.0; // no negative zero
-		std::cout << gchr << "\t" << midpoint << "\t" << logwinD << "\t" << dr_nsites << "\n";
+		std::cout << gchr << "\t" << dist[0].first << "\t" << dist[lastwinidx].first << "\t" << midpoint << "\t" << logwinD << "\t" << dr_nsites << "\n";
 	}
 
 	return 0;
@@ -665,7 +658,12 @@ void comp2DistInfo (unsigned int windsize, unsigned int stepsize, int useAvg) {
 	<< std::setw(w) << std::left << "-useAverage" << std::setw(w) << "INT" << "difference between populations is calculated for (0) each window, or (1) averaged across the genome " << "[" << useAvg << "]" << "\n"
 	<< "\nIt is assumed that the individual belongs to population 1\n"
 	<< "\nOutput:\n"
-	<< "(1) chr, (2) window position midpoint, (3) genetic distance statistic, (4) number of sites with data in window\n"
+	<< "(1) chr\n"
+	<< "(2) window start\n"
+	<< "(3) window stop\n"
+	<< "(4) window position midpoint\n"
+	<< "(5) genetic distance statistic\n"
+	<< "(6) number of sites with data in window\n"
 	<< "\n";
 }
 
@@ -679,6 +677,11 @@ void comp3DistInfo (unsigned int windsize, unsigned int stepsize) {
 	<< std::setw(w) << std::left << "-step" << std::setw(w) << "INT" << "step size in number of sites " << "[" << stepsize << "]" << "\n"
 	<< "\nIt is assumed that individual1 belongs to population1 and that individual2 belongs to population2\n"
 	<< "\nOutput:\n"
-	<< "(1) chr, (2) window position midpoint, (3) genetic distance statistic, (4) number of sites with data in window\n"
+	<< "(1) chr\n"
+	<< "(2) window start\n"
+	<< "(3) window stop\n"
+	<< "(4) window position midpoint\n"
+	<< "(5) genetic distance statistic\n"
+	<< "(6) number of sites with data in window\n"
 	<< "\n";
 }

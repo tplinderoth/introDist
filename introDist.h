@@ -18,7 +18,8 @@ public:
 };
 
 struct WindowInfo {
-	unsigned int pos;
+	unsigned int start;
+	unsigned int stop;
 	unsigned int nsites;
 	double d;
 };
@@ -33,7 +34,7 @@ int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, 
 int distAnalysis(int argc, char** argv);
 double expect2PopDist (double p1, double p2);
 double expectIndPopDist (double g, double p);
-WindowInfo makeWinInfo (unsigned int position, unsigned int nsites, double dist);
+WindowInfo makeWinInfo (unsigned int start, unsigned int stop, unsigned int nsites, double dist);
 int comp2Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, const char* genofname);
 int comp3Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step);
 double calc3Dist (double g1, double g2, double p1, double p2);
