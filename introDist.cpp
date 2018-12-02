@@ -32,14 +32,14 @@ int distAnalysis(int argc, char** argv) {
 	std::string dist_t(argv[1]);
 	std::fstream freqfile;
 	std::fstream genofile;
-	const char* genofname = NULL;
+	std::string genofname;
 	unsigned int window = 1;
 	unsigned int step = 1;
 	int useAvg = 1; // whether to use genome or window average for comp2Dist
 
-	if ((rv = parseArgs(argc, argv, freqfile, genofile, window, step, genofname, useAvg, &dist_t)) == 0) {
+	if ((rv = parseArgs(argc, argv, freqfile, genofile, window, step, &genofname, useAvg, &dist_t)) == 0) {
 		if (dist_t.compare("comp2Dist") == 0) {
-			rv = comp2Dist(freqfile, genofile, window, step, useAvg, genofname);
+			rv = comp2Dist(freqfile, genofile, window, step, useAvg, &genofname);
 		}
 		else if (dist_t.compare("comp3Dist") == 0) {
 			rv = comp3Dist(freqfile, genofile, window, step);
@@ -60,7 +60,7 @@ int distAnalysis(int argc, char** argv) {
 	return rv;
 }
 
-int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, unsigned int &window, unsigned int &step, const char* genofname, int &useAvg, std::string* dist_type) {
+int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, unsigned int &window, unsigned int &step, std::string* genofname, int &useAvg, std::string* dist_type) {
 	int argpos = 2;
 	int increment = 0;
 
@@ -101,7 +101,7 @@ int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, 
 		}
 
 		if (strcmp(v[argpos], "-geno") == 0) {
-			genofname = v[argpos+1];
+			*genofname = v[argpos+1];
 			genofile.open(v[argpos+1], std::ios::in);
 			if (! genofile) {
 				std::cerr << "Unable to open genotype file " << v[argpos+1] << "\n";
@@ -132,8 +132,10 @@ int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, 
 					break;
 				case 1:
 					break;
+				case 2:
+					break;
 				default :
-					std::cerr << "-useAverage can only be 0 (use region) or 1 (use genome-wide average)\n";
+					std::cerr << "-useAverage can only be 0 (region pop distance), 1 (genome pop distance), 2 (genome individual-pop2 distance)\n";
 					return -1;
 			}
 		}
@@ -145,7 +147,7 @@ int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, 
 	return 0;
 }
 
-int comp2Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, int useAvg, const char* genofname) {
+int comp2Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, int useAvg, std::string* genofname) {
 	int comp2return = 0;
 
 	switch (useAvg) {
@@ -155,33 +157,37 @@ int comp2Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int wind
 			break;
 		case 1 :
 			std::cerr << "Using genome-wide distance between populations\n";
-			comp2return = comp2DistAvg(freqfile, genofile, window, step, genofname);
+			comp2return = comp2DistPopAvg(freqfile, genofile, window, step, genofname);
+			break;
+		case 2 :
+			std::cerr << "Using genome-wide distance between individual and population 2\n";
+			comp2return = comp2DistIndAvg(freqfile, genofile, window, step, genofname);
 			break;
 		default :
-			std::cerr << "Need to specify whether to use genome- or window-wide distance between populations in call to comp2Dist\n";
+			std::cerr << "Need to specify -useAvg 0, 1, or 2 in call to comp2Dist\n";
 			comp2return = -1;
 	}
 
 	return comp2return;
 }
 
-int comp2DistAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, const char* genofname) {
+int comp2DistPopAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, std::string* genofname) {
 
 	/*
 	 * this calculates the difference in the genetic distance between individual i and population2 in a region and
 	 * the expected distance between individual i's population and population2 averaged across the genome
 	 *
-	 * D = [d_R(i, P2) - d_G(Pi, P2)] / max(d_G(Pi, P2),d_R(i, P2))
+	 * D = d_R(i, P2) - d_G(Pi, P2)
 	 * subscript G denotes average over the genome
 	 * subscript R denotes average across region
 	 *
 	 * at site s:
-	 * expected distance between individual i and population 2: E[d(i, P2)] = |g_i - E[g_p1]|/2
+	 * expected distance between individual i and population 2: E[d(i, P2)] = |g_i - E[g_p2]|/2
 	 * expected difference between the distance of individuals i's population and population 2: d(Pi, P2) = |E[g_p1] - E[g_p2]|/2
 	 *
 	 * d_G(Pi, P2) = 1/N_G * sum_from=1_to=N_G |E[g_p1] - E[g_p2]|/2, where N_G is total number of sites analyzed
 	 *
-	 * d_R(i, P2) = 1/N_R * sum_from=1_to=N_R |g_i - E[g_p1]|/2, where N_R is the number of sites in the window
+	 * d_R(i, P2) = 1/N_R * sum_from=1_to=N_R |g_i - E[g_p2]|/2, where N_R is the number of sites in the window
 	 *
 	 * assumes individual i is from population 1
 	 *
@@ -216,8 +222,9 @@ int comp2DistAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 	getline(genofile, gline);
 
 	// estimate number of lines of input files to set up vector to hold distances
+	ss.str(gline);
 	ss >> gchr;
-	unsigned int nlines = filesize(genofname)/(gchr.length()+2*sizeof(int));
+	unsigned int nlines = ceil(filesize(genofname->c_str())/(gchr.size()+2*sizeof(int)-1));
 	std::vector<WindowInfo> windist;
 	windist.reserve(nlines/step + 10);
 
@@ -316,16 +323,168 @@ int comp2DistAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 
 	unsigned int midpoint = 0;
 	double Dstat = 0.0;
-	double denom;
 	for (std::vector<WindowInfo>::iterator winditer = windist.begin(); winditer != windist.end(); ++winditer) {
-		denom = dg > winditer->d ? dg : winditer->d;
-		if (denom > 0) {
-			Dstat = (winditer->d - dg)/denom;
+		Dstat = winditer->d - dg;
+		midpoint = (winditer->start + winditer->stop)/2;
+		std::cout << gchr << "\t" << winditer->start << "\t" << winditer->stop << "\t" << midpoint << "\t" << Dstat << "\t" << winditer->nsites << "\n";
+	}
+
+	return 0;
+}
+
+int comp2DistIndAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, std::string* genofname) {
+
+	/*
+	 * this calculates the difference in the genetic distance between individual i and population2 in a region and
+	 * the genome-wide average distance between individual i and population2
+	 *
+	 * D = d_R(i, P2) - d_G(i, P2)
+	 * subscript G denotes average over the genome
+	 * subscript R denotes average across region
+	 *
+	 * at site s:
+	 * expected distance between individual i and population 2: E[d(i, P2)] = |g_i - E[g_p2]|/2
+	 *
+	 * d_G(i, P2) = 1/N_G * sum_from=1_to=N_G |g_i - E[g_p2]|/2, where N_G is total number of sites analyzed
+	 *
+	 * d_R(i, P2) = 1/N_R * sum_from=1_to=N_R |g_i - E[g_p2]|/2, where N_R is the number of sites in the window
+	 *
+	 * assumes individual i is from population 1
+	 *
+	 */
+
+	std::vector<sitedist> dist;
+	dist.resize(window);
+	std::vector<sitedist>::iterator distiter = dist.begin();
+	unsigned int lastidx = window-1;
+	unsigned int nsites = 0;
+	unsigned int dr_nsites = 0;
+	double windD = 0.0;
+	unsigned int i = 0;
+	unsigned int n = window-step;
+	double dg = 0.0;
+	unsigned int dg_nsites = 0;
+
+	std::stringstream ss;
+
+	std::string(fline);
+	std::string(fchr);
+	unsigned int fpos;
+	double p1f;
+	double p2f;
+
+	std::string(gline);
+	std::string(gchr);
+	unsigned int gpos;
+	int geno;
+
+	getline(freqfile, fline);
+	getline(genofile, gline);
+
+	// estimate number of lines of input files to set up vector to hold distances
+	ss.str(gline);
+	ss >> gchr;
+	unsigned int nlines = ceil(filesize(genofname->c_str())/(gchr.size()+2*sizeof(int)-1));
+	std::vector<WindowInfo> windist;
+	windist.reserve(nlines/step + 10);
+
+	// calculate windows
+	while (!fline.empty()) {
+
+		// parse frequency file lines
+		ss.str(std::string());
+		ss.clear();
+		ss.str(fline);
+		ss >> fchr >> fpos >> p1f >> p2f;
+
+		// parse genotype file lines
+		ss.str(std::string());
+		ss.clear();
+		ss.str(gline);
+		ss >> gchr >> gpos >> geno;
+
+		// ensure that files are synched
+		if (gchr.compare(fchr) != 0 || gpos != fpos) {
+			std::cerr << "Positions in input files differ\n";
+			return -1;
 		}
-		else { // use exception handling for this
-			std::cerr << "Warning: genome and window distances are zero for region " << gchr << " " << winditer->start << "," << winditer->stop << "\n";
-			Dstat = 0.0;
+
+		distiter->first = gpos;
+		if (geno < 0) {
+			// missing data
+			distiter->second = -3.0;
+		} else {
+			// update window information
+			distiter->second = expectIndPopDist(geno, p2f);
+			// update genome-wide distance
+			dg += distiter->second;
+			++dg_nsites;
 		}
+		++distiter;
+		++nsites;
+
+		if (distiter == dist.end()) {
+
+			// calculate window value
+			windD = 0.0;
+			dr_nsites = 0;
+			for (distiter = dist.begin(); distiter != dist.end(); ++distiter) {
+				if (distiter->second < -2.0) continue;
+				windD += distiter->second;
+				++dr_nsites;
+			}
+			if (dr_nsites > 0) {
+				windD /= (double)dr_nsites;
+			} else {
+				std::cerr << "Warning: window " << gchr << " " << dist[0].first << "," << dist[lastidx].first << " has no sites with data\n";
+			}
+			windist.push_back(makeWinInfo(dist[0].first, dist[lastidx].first, dr_nsites, windD));
+
+			// prepare vector for new values
+			for (i = 0; i < n; ++i) {
+				dist[i].first = dist[step+i].first;
+				dist[i].second = dist[step+i].second;
+			}
+
+			nsites = n;
+			distiter = dist.begin() + n;
+		}
+
+		getline(freqfile, fline);
+		getline(genofile, gline);
+	}
+
+	// calculate last window
+	if (nsites > n && nsites < window) {
+		unsigned int lastwinidx = nsites-1;
+		dr_nsites = 0;
+		windD = 0.0;
+		for (i=0; i < lastwinidx; ++i) {
+			if (dist[i].second < -2.0) continue;
+			windD += dist[i].second;
+			++dr_nsites;
+		}
+		if (dr_nsites > 0) {
+			windD /= (double)dr_nsites;
+		} else {
+			std::cerr << "Warning: window " << gchr << " " << dist[0].first << "," << dist[lastwinidx].first << " has no sites with data\n";
+		}
+		windist.push_back(makeWinInfo(dist[0].first, dist[lastwinidx].first, dr_nsites, windD));
+	}
+
+	// calculate and print distance statistic
+	if (dg_nsites > 0) {
+		dg /= (double)dg_nsites;
+	} else {
+		std::cerr << "There were no sites with complete data, cannot calculate distance statistic\n";
+		return 0; // use better exception handling here
+	}
+	std::cerr << "\nGenome-wide, average distance between individual and population2: " << dg << "\n\n";
+
+	unsigned int midpoint = 0;
+	double Dstat = 0.0;
+	for (std::vector<WindowInfo>::iterator winditer = windist.begin(); winditer != windist.end(); ++winditer) {
+		Dstat = winditer->d - dg;
 		midpoint = (winditer->start + winditer->stop)/2;
 		std::cout << gchr << "\t" << winditer->start << "\t" << winditer->stop << "\t" << midpoint << "\t" << Dstat << "\t" << winditer->nsites << "\n";
 	}
@@ -339,16 +498,16 @@ int comp2DistReg (std::fstream &freqfile, std::fstream &genofile, unsigned int w
 	 * this calculates the difference in the genetic distance between individual i and population2
 	 * and the expected distance between individual i's population and population2 in a region
 	 *
-	 * D = [d_R(i, P2) - d_R(Pi, P2)]
+	 * D = d_R(i, P2) - d_R(Pi, P2)
 	 * subscript R denotes average across region
 	 *
 	 * at site s:
-	 * expected distance between individual i and population 2: E[d(i, P2)] = |g_i - E[g_p1]|/2
+	 * expected distance between individual i and population 2: E[d(i, P2)] = |g_i - E[g_p2]|/2
 	 * expected difference between the distance of individuals i's population and population 2: d(Pi, P2) = |E[g_p1] - E[g_p2]|/2
 	 *
 	 * d_R(Pi, P2) = 1/N_R * sum_from=1_to=N_R |E[g_p1] - E[g_p2]|/2, where N_R is total number of sites in the window
 	 *
-	 * d_R(i, P2) = 1/N_R * sum_from=1_to=N_R |g_i - E[g_p1]|/2, where N_R is the number of sites in the window
+	 * d_R(i, P2) = 1/N_R * sum_from=1_to=N_R |g_i - E[g_p2]|/2, where N_R is the number of sites in the window
 	 *
 	 * assumes individual i is from population 1
 	 *
@@ -655,7 +814,7 @@ void comp2DistInfo (unsigned int windsize, unsigned int stepsize, int useAvg) {
 	<< std::setw(w) << std::left << "-geno" << std::setw(w) << "FILE" << "file with (1) chr, (2) position, (3) individual genotypes\n"
 	<< std::setw(w) << std::left << "-window" << std::setw(w) << "INT" << "Window size in number of sites " << "[" << windsize << "]" << "\n"
 	<< std::setw(w) << std::left << "-step" << std::setw(w) << "INT" << "step size in number of sites " << "[" << stepsize << "]" << "\n"
-	<< std::setw(w) << std::left << "-useAverage" << std::setw(w) << "INT" << "difference between populations is calculated for (0) each window, or (1) averaged across the genome " << "[" << useAvg << "]" << "\n"
+	<< std::setw(w) << std::left << "-useAverage" << std::setw(w) << "INT" << "compare region to distance between (0) populations within window, (1) populations across the genome, (2) individual and pop2 across the genome " << "[" << useAvg << "]" << "\n"
 	<< "\nIt is assumed that the individual belongs to population 1\n"
 	<< "\nOutput:\n"
 	<< "(1) chr\n"
