@@ -25,13 +25,18 @@ struct WindowInfo {
 };
 
 void mainInfo ();
+void avgDistInfo (int avgtype);
 void comp2DistInfo (unsigned int windsize, unsigned int stepsize, int useAvg);
-int comp2Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, int useAvg, std::string* genofname);
+int comp2Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, int useAvg, std::string* genofname, const double* distance);
 int comp2DistReg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step);
-int comp2DistPopAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, std::string* genofname);
-int comp2DistIndAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, std::string* genofname);
+int comp2DistPopAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, std::string* genofname, const double* distance);
+int comp2DistIndAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, std::string* genofname, const double* distance);
 void comp3DistInfo (unsigned int windsize, unsigned int stepsize);
-int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, unsigned int &window, unsigned int &step, std::string* genofname, int &useAvg, std::string* dist_type);
+int avgDist (std::fstream &freqfile, std::fstream &genofile, int avgtype);
+int avg2PopDist (std::fstream &freqfile);
+int avgIndPopDist (std::fstream &freqfile, std::fstream &genofile);
+int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, unsigned int &window, unsigned int &step,
+		std::string* genofname, int &useAvg, int &avgtype, double &distance, std::string* dist_type);
 int distAnalysis(int argc, char** argv);
 double expect2PopDist (double p1, double p2);
 double expectIndPopDist (double g, double p);

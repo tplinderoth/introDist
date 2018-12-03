@@ -36,13 +36,19 @@ int distAnalysis(int argc, char** argv) {
 	unsigned int window = 1;
 	unsigned int step = 1;
 	int useAvg = 1; // whether to use genome or window average for comp2Dist
+	int avgtype = 0;
+	double distance = -1;
 
-	if ((rv = parseArgs(argc, argv, freqfile, genofile, window, step, &genofname, useAvg, &dist_t)) == 0) {
+	if ((rv = parseArgs(argc, argv, freqfile, genofile, window, step, &genofname, useAvg, avgtype, distance, &dist_t)) == 0) {
 		if (dist_t.compare("comp2Dist") == 0) {
-			rv = comp2Dist(freqfile, genofile, window, step, useAvg, &genofname);
+			double* dptr = distance >= 0 ? &distance : NULL;
+			rv = comp2Dist(freqfile, genofile, window, step, useAvg, &genofname, dptr);
 		}
 		else if (dist_t.compare("comp3Dist") == 0) {
 			rv = comp3Dist(freqfile, genofile, window, step);
+		}
+		else if (dist_t.compare("avgDist") == 0) {
+			rv = avgDist(freqfile, genofile, avgtype);
 		}
 		else {
 			rv = -1;
@@ -60,7 +66,8 @@ int distAnalysis(int argc, char** argv) {
 	return rv;
 }
 
-int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, unsigned int &window, unsigned int &step, std::string* genofname, int &useAvg, std::string* dist_type) {
+int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, unsigned int &window, unsigned int &step,
+		std::string* genofname, int &useAvg, int &avgtype, double &distance, std::string* dist_type) {
 	int argpos = 2;
 	int increment = 0;
 
@@ -83,6 +90,12 @@ int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, 
 		case 3 :
 			if (c < 6) {
 				comp3DistInfo(window, step);
+				return 1;
+			}
+			break;
+		case 4 :
+			if (c < 4) {
+				avgDistInfo(avgtype);
 				return 1;
 			}
 			break;
@@ -125,6 +138,19 @@ int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, 
 			}
 		}
 
+		if (strcmp(v[argpos], "-avgtype") == 0) {
+			avgtype = atoi(v[argpos+1]);
+			switch (avgtype) {
+				case 0 :
+					break;
+				case 1 :
+					break;
+				default :
+					std::cerr << "-avgtype can only be 0 (distance between pops) or 1 (distance between individual and pop2)\n";
+					return -1;
+			}
+		}
+
 		if (strcmp(v[argpos], "-useAverage") == 0) {
 			useAvg = atoi(v[argpos+1]);
 			switch (useAvg) {
@@ -140,6 +166,14 @@ int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, 
 			}
 		}
 
+		if (strcmp(v[argpos], "-distance") == 0) {
+			distance = atof(v[argpos+1]);
+			if (distance < 0 || distance > 1) {
+				std::cerr << "Valid -distance is in range [0,1]\n";
+				return -1;
+			}
+		}
+
 		argpos += 2 + increment;
 		increment = 0;
 	}
@@ -147,7 +181,142 @@ int parseArgs (int c, char **v, std::fstream &freqfile, std::fstream &genofile, 
 	return 0;
 }
 
-int comp2Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, int useAvg, std::string* genofname) {
+int avgDist (std::fstream &freqfile, std::fstream &genofile, int avgtype) {
+	int distreturn = 0;
+
+	switch (avgtype) {
+		case 0 :
+			std::cerr << "Calculating expected distance between populations\n";
+			distreturn = avg2PopDist(freqfile);
+			break;
+		case 1 :
+			std::cerr << "Calculating distance between individual and population\n";
+			distreturn = avgIndPopDist(freqfile, genofile);
+			break;
+		default:
+			std::cerr << "Need to specify -distance 0 or 1 in call to -avgDist\n";
+			distreturn = -1;
+	}
+
+	return distreturn;
+}
+
+int avg2PopDist (std::fstream &freqfile) {
+	/*
+	 * this calculates the expected genetic distance between two populations
+	 * D = 1/N_G * sum_from=1_to=N_G |E[g_p1] - E[g_p2]|/2
+	 * where N_G is the number of sites in the genome
+	 */
+
+	if (!freqfile) {
+		std::cerr << "No allele frequency file stream in call to avg2PopDist\n";
+		return -1;
+	}
+
+	std::stringstream ss;
+	std::string(fline);
+	std::string(chr);
+	unsigned int pos;
+	double p1f = 0.0;
+	double p2f = 0.0;
+	double dist = 0.0;
+	unsigned int nsites = 0;
+
+	getline(freqfile, fline);
+	while (!fline.empty()) {
+		// parse frequency file line
+		ss.str(std::string());
+		ss.clear();
+		ss.str(fline);
+		ss >> chr >> pos >> p1f >> p2f;
+
+		// update distance statistic
+		dist += expect2PopDist(p1f, p2f);
+		++nsites;
+
+		// read in next line
+		getline(freqfile, fline);
+	}
+
+	// print distance
+	dist /= double(nsites);
+	std::cout << dist << "\t" << nsites << "\n";
+
+	return 0;
+}
+
+int avgIndPopDist (std::fstream &freqfile, std::fstream &genofile) {
+	/*
+	 * this calculates the genetic distance between an individual and population2
+	 * D = 1/N_G * sum_from=1_to=N_G |g_i - E[g_p2]|/2
+	 * where N_G is the number of sites in the genome
+	 */
+
+	if (!freqfile) {
+		std::cerr << "No allele frequency file stream in call to avgIndPopDist\n";
+		return -1;
+	}
+
+	if (!genofile) {
+		std::cerr << "No genotype file stream in call to avgIndPopDist\n";
+		return -1;
+	}
+
+	std::stringstream ss;
+
+	std::string(fline);
+	std::string(fchr);
+	unsigned int fpos;
+	double p1f = 0.0;
+	double p2f = 0.0;
+
+	std::string(gline);
+	std::string(gchr);
+	unsigned int gpos;
+	double geno;
+
+	double dist = 0.0;
+	unsigned int nsites = 0;
+
+	getline(freqfile, fline);
+	getline(genofile, gline);
+
+	while (!fline.empty()) {
+		// parse frequency file line
+		ss.str(std::string());
+		ss.clear();
+		ss.str(fline);
+		ss >> fchr >> fpos >> p1f >> p2f;
+
+		// parse genotype file line
+		ss.str(std::string());
+		ss.clear();
+		ss.str(gline);
+		ss >> gchr >> gpos >> geno;
+
+		if (gchr.compare(fchr) != 0 || gpos != fpos) {
+			std::cerr << "Positions in input files differ\n";
+			return -1;
+		}
+
+		if (geno >= 0) {
+			// update distance statistic
+			dist += expectIndPopDist(geno, p2f);
+			++nsites;
+		}
+
+		getline(freqfile, fline);
+		getline(genofile, gline);
+	}
+
+	// print distance
+	dist /= double(nsites);
+	std::cout << dist << "\t" << nsites << "\n";
+
+	return 0;
+}
+
+int comp2Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, int useAvg, std::string* genofname, const double* distance) {
 	int comp2return = 0;
 
 	switch (useAvg) {
@@ -157,11 +326,11 @@ int comp2Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int wind
 			break;
 		case 1 :
 			std::cerr << "Using genome-wide distance between populations\n";
-			comp2return = comp2DistPopAvg(freqfile, genofile, window, step, genofname);
+			comp2return = comp2DistPopAvg(freqfile, genofile, window, step, genofname, distance);
 			break;
 		case 2 :
 			std::cerr << "Using genome-wide distance between individual and population 2\n";
-			comp2return = comp2DistIndAvg(freqfile, genofile, window, step, genofname);
+			comp2return = comp2DistIndAvg(freqfile, genofile, window, step, genofname, distance);
 			break;
 		default :
 			std::cerr << "Need to specify -useAvg 0, 1, or 2 in call to comp2Dist\n";
@@ -171,7 +340,7 @@ int comp2Dist (std::fstream &freqfile, std::fstream &genofile, unsigned int wind
 	return comp2return;
 }
 
-int comp2DistPopAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, std::string* genofname) {
+int comp2DistPopAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, std::string* genofname, const double* distance) {
 
 	/*
 	 * this calculates the difference in the genetic distance between individual i and population2 in a region and
@@ -319,7 +488,14 @@ int comp2DistPopAvg (std::fstream &freqfile, std::fstream &genofile, unsigned in
 		std::cerr << "There were no sites with complete data, cannot calculate distance statistic\n";
 		return 0; // use better exception handling here
 	}
-	std::cerr << "\nAverage distance between populations: " << dg << "\n\n";
+	std::cerr << "\nCalculated average distance between populations: " << dg << "\n";
+
+	if (distance) {
+		// use provided distance
+		dg = *distance;
+		std::cerr << "\nUsing distance: " << dg <<  "\n";
+	}
+	std::cerr << "\n";
 
 	unsigned int midpoint = 0;
 	double Dstat = 0.0;
@@ -332,7 +508,7 @@ int comp2DistPopAvg (std::fstream &freqfile, std::fstream &genofile, unsigned in
 	return 0;
 }
 
-int comp2DistIndAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, std::string* genofname) {
+int comp2DistIndAvg (std::fstream &freqfile, std::fstream &genofile, unsigned int window, unsigned int step, std::string* genofname, const double* distance) {
 
 	/*
 	 * this calculates the difference in the genetic distance between individual i and population2 in a region and
@@ -479,7 +655,14 @@ int comp2DistIndAvg (std::fstream &freqfile, std::fstream &genofile, unsigned in
 		std::cerr << "There were no sites with complete data, cannot calculate distance statistic\n";
 		return 0; // use better exception handling here
 	}
-	std::cerr << "\nGenome-wide, average distance between individual and population2: " << dg << "\n\n";
+	std::cerr << "\nCalculated genome-wide, average distance between individual and population2: " << dg << "\n";
+
+	if (distance) {
+		// use provided distance
+		dg = *distance;
+		std::cerr << "\nUsing distance: " << dg <<  "\n";
+	}
+	std::cerr << "\n";
 
 	unsigned int midpoint = 0;
 	double Dstat = 0.0;
@@ -795,6 +978,7 @@ double calc3Dist (double g1, double g2, double p1, double p2) {
 DistCodes::DistCodes () {
 	codes.insert(std::pair<std::string, int>("comp2Dist", 2));
 	codes.insert(std::pair<std::string, int>("comp3Dist", 3));
+	codes.insert(std::pair<std::string, int>("avgDist", 4));
 }
 
 void mainInfo () {
@@ -803,6 +987,7 @@ void mainInfo () {
 	<< "\nFunctions:\n"
 	<< std::setw(w) << std::left << "comp2Dist" << std::setw(w) << "Find regions where the genetic distance between an individual and a population is less than expected\n"
 	<< std::setw(w) << std::left << "comp3Dist" << std::setw(w) << "Distance between 2 individuals and their respective populations, weighted by distance between the individuals\n"
+	<< std::setw(w) << std::left << "avgDist" << std::setw(w) << "Genome-wide distance between populations or an individual and a population\n"
 	<< "\n";
 }
 
@@ -815,7 +1000,10 @@ void comp2DistInfo (unsigned int windsize, unsigned int stepsize, int useAvg) {
 	<< std::setw(w) << std::left << "-window" << std::setw(w) << "INT" << "Window size in number of sites " << "[" << windsize << "]" << "\n"
 	<< std::setw(w) << std::left << "-step" << std::setw(w) << "INT" << "step size in number of sites " << "[" << stepsize << "]" << "\n"
 	<< std::setw(w) << std::left << "-useAverage" << std::setw(w) << "INT" << "compare region to distance between (0) populations within window, (1) populations across the genome, (2) individual and pop2 across the genome " << "[" << useAvg << "]" << "\n"
+	<< std::setw(w) << std::left << "-distance" << std::setw(w) << "FLOAT" << "use provided instead of calculated genome-wide genetic distance for -useAverage 1 and 2\n"
 	<< "\nIt is assumed that the individual belongs to population 1\n"
+	<< "-useAverage 1 should use -distance calculated with avgDist -avgtype 0\n"
+	<< "-useAverage 2 should use -distance calculated with avgDist -avgtype 1\n"
 	<< "\nOutput:\n"
 	<< "(1) chr\n"
 	<< "(2) window start\n"
@@ -842,5 +1030,19 @@ void comp3DistInfo (unsigned int windsize, unsigned int stepsize) {
 	<< "(4) window position midpoint\n"
 	<< "(5) genetic distance statistic\n"
 	<< "(6) number of sites with data in window\n"
+	<< "\n";
+}
+
+void avgDistInfo (int avgtype) {
+	int w = 12;
+	std::cerr << "\nintroDist avgDist [-freq] [-avgtype 0]\n"
+	<< "introDist avgDist [-freq] [-geno] [-avgtype 1]\n"
+	<< "\nInput:\n"
+	<< std::setw(w) << std::left << "-freq" << std::setw(w) << "FILE" << "file with (1) chr, (2) position, (3) population1 allele frequency, (4) population2 allele frequency\n"
+	<< std::setw(w) << std::left << "-geno" << std::setw(w) << "FILE" << "file with (1) chr, (2) position, (3) individual genotypes (supply when -avgtype 1)\n"
+	<< std::setw(w) << std::left << "-avgtype" << std::setw(w) << "INT" << "distance between (0) populations or (1) individual and population 2 " << "[" << avgtype << "]" << "\n"
+	<< "\nOutput:\n"
+	<< "(1) genetic distance\n"
+	<< "(2) number of sites with data\n"
 	<< "\n";
 }
