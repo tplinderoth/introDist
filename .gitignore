@@ -1,4 +1,5 @@
 introDist
+Dxyz
 *.o
 *.d
 Debug/
