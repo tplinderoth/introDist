@@ -53,7 +53,7 @@ void dxyzInfo (int winsize, int step, double maf) {
 	<< std::setw(w1) << std::left << "-vcf" << std::setw(w2) << std::left << "FILE" << "Input VCF (uncompressed, gzipped/bgzipped), '-' for STDIN\n"
 	<< std::setw(w1) << std::left << "-poptable" << std::setw(w2) << std::left << "FILE" << "Population table\n"
 	<< std::setw(w1) << std::left << "-out" << std::setw(w2) << std::left << "FILE" << "Output file name [STDOUT]\n"
-	<< std::setw(w1) << std::left << "-winsze" << std::setw(w2) << std::left << "INT" << "Number of SNPs in a window [" << winsize << "]\n"
+	<< std::setw(w1) << std::left << "-winsize" << std::setw(w2) << std::left << "INT" << "Number of SNPs in a window [" << winsize << "]\n"
 	<< std::setw(w1) << std::left << "-step" << std::setw(w2) << std::left << "INT" << "Window step size in terms of number of SNPs [" << step << "]\n"
 	<< std::setw(w1) << std::left << "-maf" << std::setw(w2) << std::left << "FLOAT" << "Minimum MAF among all individuals combined [" << maf << "]\n"
 	<< "\nPopulation table format:\n"
