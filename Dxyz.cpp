@@ -58,7 +58,7 @@ void dxyzInfo (int winsize, int step, double maf) {
 	<< std::setw(w1) << std::left << "-maf" << std::setw(w2) << std::left << "FLOAT" << "Minimum MAF among all individuals combined [" << maf << "]\n"
 	<< "\nPopulation table format:\n"
 	<< "column 1: Sample name from input VCF\n"
-	<< "column 2: Value denotating samples populations: 0 = source, 1 = sink, 2 = outgroup\n"
+	<< "column 2: Value indicating population: 0 = source, 1 = sink, 2 = outgroup\n"
 	<< "\nOutput\n"
 	<< "(1) Chromosome\n"
 	<< "(2) Window start position\n"
@@ -200,8 +200,9 @@ int vcf2Dxyz (std::ifstream &poptab, std::ifstream &vcf, std::ofstream &outf, in
 		}
 
 		// find individual's positions in allele vector
-		std::vector<int> ssidx; // this is the source-sink dxy
-		std::vector<int> soidx; // this is the source-outgroup dxy
+		std::vector<int> source_idx; // this is the source pop index positions
+		std::vector<int> sink_idx; // this is the sink pop index positions
+		std::vector<int> outgroup_idx; // this is the outgroup index positions
 
 		std::stringstream ss(vcfline);
 		std::string tok;
@@ -216,19 +217,17 @@ int vcf2Dxyz (std::ifstream &poptab, std::ifstream &vcf, std::ofstream &outf, in
 					idxpos[0] = c2;
 					idxpos[1] = c2+1;
 
-					if (pop == 0 || pop == 1) {
-							ssidx.insert(ssidx.end(), idxpos, idxpos+2);
-							//std::cerr << tok << "\t" << pop << "\t" << ssidx.back()-1 << "\t" << ssidx.back() << "\n"; //debug
+					if (pop == 0) {
+						source_idx.insert(source_idx.end(), idxpos, idxpos+2);
+					} else if (pop == 1) {
+						sink_idx.insert(sink_idx.end(), idxpos, idxpos+2);
+					} else if (pop == 2) {
+						outgroup_idx.insert(outgroup_idx.end(), idxpos, idxpos+2);
+					} else {
+						std::cerr << "Invalid population code: " << pop << "\n";
+						return -1;
 					}
 
-					if (pop == 0 || pop == 2) {
-							soidx.insert(soidx.end(), idxpos, idxpos+2);
-							//std::cerr << tok << "\t" << pop << "\t" << soidx.back()-1 << "\t" << soidx.back() << "\n"; //debug
-					}
-
-				} else {
-					std::cerr << tok << " is not in population table\n";
-					return -1;
 				}
 				c2 += 2;
 			}
@@ -251,7 +250,6 @@ int vcf2Dxyz (std::ifstream &poptab, std::ifstream &vcf, std::ofstream &outf, in
 		int i = 0, j = 0;
 		std::string seqid;
 		std::string prevseq;
-		int nseqdata; // tracks number of sequences at a site with data
 		int nsitedata; // tracks number of sites in a window with data
 		double nseqdata_win; // tracks average number of sequences per site in a window with data
 		double dxy_components [2]; // 0=Source-Sink Dxy, 1=Source-Outgroup Dxy
@@ -265,17 +263,13 @@ int vcf2Dxyz (std::ifstream &poptab, std::ifstream &vcf, std::ofstream &outf, in
 			ss.str(vcfline);
 			ss >> seqid; // extract CHROM
 			ss >> dxy(j,2); // extract POS
-			nseqdata = 0;
 			i=2;
 			while (ss >> tok) {
 				if (i > 8) {
-					// extract genotype
-					if(parseGenotype(tok, alleles, &nseqdata) == alleles.end()) {
+					// extract genotypes
+					if(parseGenotype(tok, alleles) == alleles.end()) {
 						return -1;
 					}
-				}
-				else if (i == 7) {
-					dxy(j,4) = getMaf(tok); // extract MAF from INFO
 				} else if (i == 8) {
 					// ensure genotypes are present
 					if (tok[0] != 'G' || tok[1] != 'T') {
@@ -292,9 +286,7 @@ int vcf2Dxyz (std::ifstream &poptab, std::ifstream &vcf, std::ofstream &outf, in
 			}
 
 			// calculate average number of pairwise differences for site
-			dxy(j,0) = calcDxy(alleles, ssidx); // source-sink dxy
-			dxy(j,1) = calcDxy(alleles, soidx); // source-out dxy
-			dxy(j,3) = nseqdata; // number of sequences with data
+			dxyComponents(alleles, source_idx, sink_idx, outgroup_idx, dxy, j);
 			++j;
 
 			if (j == winsize || (!prevseq.empty() && prevseq != seqid)) {
@@ -323,7 +315,7 @@ int vcf2Dxyz (std::ifstream &poptab, std::ifstream &vcf, std::ofstream &outf, in
 }
 
 void printHeader (std::ostream &outstream) {
-	outstream << "SeqID\tWindowStart\tWindowEnd\tSSDxy\tSODxy\tDxyz\tnSequences\tnSites" << std::endl;
+	outstream << "SeqID\tWindowStart\tWindowEnd\tDxy\tDxz\tDxyz\tnSequences\tnSites" << std::endl;
 }
 
 void printWindow (std::ostream &outstream, const double &dxyz, const std::string &seqid, const unsigned int &startpos, const unsigned int &endpos,
@@ -387,7 +379,7 @@ double getMaf (const std::string &info) {
 	return (freq < 0.5 ? freq : 1.0-freq);
 }
 
-std::vector<int>::iterator& parseGenotype (const std::string &gt, std::vector<int> &alleles, int* n) {
+std::vector<int>::iterator& parseGenotype (const std::string &gt, std::vector<int> &alleles) {
 	// sets the alleles in the allele vector and advances the iterator to the last set position
 	static std::vector<int>::iterator it = alleles.begin();
 
@@ -396,11 +388,9 @@ std::vector<int>::iterator& parseGenotype (const std::string &gt, std::vector<in
 			switch (gt[i]) {
 				case '0':
 					*it = 0;
-					++*n;
 					break;
 				case '1':
 					*it = 1;
-					++*n;
 					break;
 				case '.':
 					*it = -9;
@@ -425,21 +415,56 @@ std::vector<int>::iterator& parseGenotype (const std::string &gt, std::vector<in
 	return it;
 }
 
-double calcDxy(const std::vector<int> &alleles, const std::vector<int> &idx) {
-	static std::vector<int>::const_iterator it1;
-	static std::vector<int>::const_iterator it2;
-	double ncompare = 0;
-	double ndiff = 0;
-	for (it1=idx.begin(); it1!=idx.end()-1; ++it1) {
-		if (alleles[*it1] == -9) continue;
-		for (it2=it1+1; it2!=idx.end(); ++it2) {
-			if (alleles[*it2] == -9) continue;
-			if (alleles[*it1] != alleles[*it2]) ++ndiff;
-			++ncompare;
-		}
+
+unsigned int altCount (const std::vector<int> &alleles, const std::vector<int> &idx, unsigned int &nseq) {
+	static std::vector<int>::const_iterator idxiter;
+	nseq = 0;
+	unsigned int altcount = 0;
+	for (idxiter = idx.begin(); idxiter != idx.end(); ++idxiter) {
+		if (alleles[*idxiter] == -9) continue;
+		if (alleles[*idxiter] == 1) ++altcount;
+		++nseq;
 	}
 
-	return(ncompare > 0 ? ndiff/ncompare : -9);
+	return altcount;
+}
+
+void dxyComponents(const std::vector<int> &alleles, const std::vector<int> &source_idx, const std::vector<int> &sink_idx,
+		const std::vector<int> &outgroup_idx, Matrix<double> &dxy, int rown) {
+
+	double ntotal = 0; // total number of sequences with data
+	double nalt = 0; // number of sequences with alternate allele
+	unsigned int popn = 0; // number of sequences with data in subgroup
+
+	// calculate source population alt allele frequency
+	double altx = altCount(alleles, source_idx, popn);
+	double fx = (popn > 0) ? altx/popn : -9;
+	ntotal += popn;
+	nalt += altx;
+
+	// calculate sink population alt allele frequency
+	double alty = altCount(alleles, sink_idx, popn);
+	double fy = (popn > 0) ? alty/popn : -9;
+	ntotal += popn;
+	nalt += alty;
+
+	// calculate outgroup alt allele frequency
+	double altz = altCount(alleles, outgroup_idx, popn);
+	double fz = (popn > 0) ? altz/popn : -9;
+	ntotal += popn;
+	nalt += altz;
+
+	// calculate source-sink dxy
+	dxy(rown, 0) = (fx != -9 && fy != -9) ? fx*(1.0-fy) + (1.0-fx)*fy : -9;
+
+	// calculate source-outgroup dxy
+	dxy(rown, 1) = (fx != -9 && fy != -9) ? fx*(1.0-fz) + (1.0-fx)*fz : -9;
+
+	// log number of sequences with data
+	dxy(rown, 3) = ntotal;
+
+	// calculate maf for subset of analyzed sequences
+	dxy(rown, 4) = (ntotal > 0) ? nalt/ntotal : 0;
 }
 
 double calcDxyzWindow(const Matrix<double> &dxy, unsigned int lastidx, double* nseqavg, int *nsites, const double minmaf, double* dxy_comp) {

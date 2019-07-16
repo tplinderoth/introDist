@@ -77,8 +77,10 @@ void printWindow (std::ostream &outstream, const double &dxyz, const std::string
 		const double &nseq, const double &nsites, double* dxy_comp);
 int setPopTable(std::ifstream &popfile, std::map<std::string, int> &popmap);
 double getMaf (const std::string &info);
-std::vector<int>::iterator& parseGenotype (const std::string &gt, std::vector<int> &alleles, int* n);
-double calcDxy(const std::vector<int> &alleles, const std::vector<int> &idx);
+std::vector<int>::iterator& parseGenotype (const std::string &gt, std::vector<int> &alleles);
+unsigned int altCount (const std::vector<int> &alleles, const std::vector<int> &idx, unsigned int &nseq);
+void dxyComponents(const std::vector<int> &alleles, const std::vector<int> &source_idx, const std::vector<int> &sink_idx,
+		const std::vector<int> &outgroup_idx, Matrix<double> &dxy, int rown);
 double calcDxyzWindow(const Matrix<double> &dxy, unsigned int lastidx, double* nseqavg, int *nsites, const double minmaf, double* dxy_comp);
 unsigned int slideWindow (Matrix<double> &win, const unsigned int winsize, const unsigned int step, unsigned int nsites);
 
